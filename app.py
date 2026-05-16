@@ -6,10 +6,13 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGener
 from langchain_pinecone import PineconeVectorStore
 from pinecone import Pinecone
 
-# --- User Database Simulation ---
+
+
+
+# --- TEMPORARY HARDCODED DATABASE TO BYPASS CACHE ---
 USER_DB = {
-    "customer": {"password": "pwd", "role": "customer"},
-    "technician": {"password": "tech", "role": "technician"}
+    "Dudub": "dudu1408,technician",
+    "Customer": "cust1234,customer"
 }
 
 ROLE_FILTERS = {
@@ -17,7 +20,7 @@ ROLE_FILTERS = {
     "technician": {"role": {"$in": ["customer", "technician"]}}
 }
 
-# --- Setup Keys (From Streamlit Secrets) ---
+# --- Setup Keys ---
 os.environ["PINECONE_API_KEY"] = st.secrets["PINECONE_API_KEY"]
 os.environ["GOOGLE_API_KEY"] = st.secrets["GOOGLE_API_KEY"]
 INDEX_NAME = "manuals-index"
@@ -27,26 +30,32 @@ if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
 
 def login_ui():
-    st.title("Secure Portal")
+    st.title("Secure Technical Portal")
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
+    
     if st.button("Login"):
-
-        # Temporary debug line - remove this after fixing!
-        st.write("Available users in system:", list(USER_DB.keys())) 
+        # Case-insensitive matching
+        username_lower = username.lower()
+        user_db_lower = {k.lower(): v for k, v in USER_DB.items()}
         
-
-
-        user = USER_DB.get(username)
-        if user and user["password"] == password:
-            st.session_state['user_role'] = user["role"]
-            st.rerun()
+        if username_lower in user_db_lower:
+            secret_string = user_db_lower[username_lower]
+            saved_password, saved_role = secret_string.split(",")
+            
+            if password == saved_password.strip():
+                st.session_state['user_role'] = saved_role.strip()
+                st.rerun()
+            else:
+                st.error("Invalid password.")
         else:
-            st.error("Invalid credentials")
+            st.error("Username not found.")
 
 if not st.session_state['user_role']:
     login_ui()
     st.stop()
+
+
 
 st.sidebar.success(f"Logged in as: {st.session_state['user_role'].capitalize()}")
 if st.sidebar.button("Logout"):
