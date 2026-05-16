@@ -31,6 +31,12 @@ def login_ui():
     username = st.text_input("Username")
     password = st.text_input("Password", type="password")
     if st.button("Login"):
+
+        # Temporary debug line - remove this after fixing!
+        st.write("Available users in system:", list(USER_DB.keys())) 
+        
+        if username in USER_DB and USER_DB[username]["password"] == password:
+
         user = USER_DB.get(username)
         if user and user["password"] == password:
             st.session_state['user_role'] = user["role"]
