@@ -65,7 +65,7 @@ if st.sidebar.button("Logout"):
 # --- Initialize AI & Database ---
 @st.cache_resource
 def init_rag():
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+    embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-004")
     llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
     vectorstore = PineconeVectorStore(index_name=INDEX_NAME, embedding=embeddings)
     return llm, vectorstore
