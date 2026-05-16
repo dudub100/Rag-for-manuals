@@ -89,11 +89,19 @@ if st.session_state['user_role'] == 'technician':
             chunks = text_splitter.split_documents(pages)
             
             # Inject metadata tag for security
+
+                        # Inject metadata tag for security
             for chunk in chunks:
                 chunk.metadata = {"role": doc_role, "source": uploaded_file.name}
                 
-            vectorstore.add_documents(chunks)
-            st.success("Manual secured and loaded into Vector DB!")
+            # --- NEW TRY/EXCEPT BLOCK ---
+            try:
+                vectorstore.add_documents(chunks)
+                st.success("Manual secured and loaded into Vector DB!")
+            except Exception as e:
+                st.error(f"Google API Error: {str(e)}")
+
+            
 
 # --- Main Search Interface ---
 st.title("🛠️ VX-Series Assistant")
