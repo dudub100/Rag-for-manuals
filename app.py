@@ -63,15 +63,29 @@ if st.sidebar.button("Logout"):
     st.rerun()
 
 # --- Initialize AI & Database ---
+
+from langchain_google_genai import HarmCategory, HarmBlockThreshold
+
 @st.cache_resource
 def init_rag():
-# The updated, current 2026 Gemini embedding model
+    # Your working embedding model
     embeddings = GoogleGenerativeAIEmbeddings(
-    model="gemini-embedding-001", 
-    output_dimensionality=768
+        model="gemini-embedding-001", 
+        output_dimensionality=768
     )
-
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+    
+    # Updated Chat Model with Safety Filters turned off for technical manuals
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.0-flash",  # Updated model name
+        temperature=0,
+        safety_settings={
+            HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+            HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+        }
+    )
+    
     vectorstore = PineconeVectorStore(index_name=INDEX_NAME, embedding=embeddings)
     return llm, vectorstore
 
