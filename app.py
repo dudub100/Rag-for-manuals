@@ -138,12 +138,16 @@ if query:
         if not docs:
             st.warning("No relevant information found within your authorized manuals.")
         else:
-            # 3. Formulate the answer
+            # Formulate the answer
             context = "\n\n".join([d.page_content for d in docs])
             prompt = f"Answer the question using ONLY the context provided.\nContext: {context}\nQuestion: {query}"
             
-            response = llm.invoke(prompt)
-            st.write(response.content)
+            # --- NEW TRY/EXCEPT BLOCK ---
+            try:
+                response = llm.invoke(prompt)
+                st.write(response.content)
+            except Exception as e:
+                st.error(f"Chat Model Error: {str(e)}")
             
             with st.expander("View Source Citations"):
                 for doc in docs:
