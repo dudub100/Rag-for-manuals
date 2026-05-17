@@ -76,7 +76,7 @@ def init_rag():
     
     # Updated Chat Model with Safety Filters turned off for technical manuals
     llm = ChatGoogleGenerativeAI(
-        model="gemini-2.0-flash",  # Updated model name
+        model="gemini-3-flash",  # Updated model name
         temperature=0,
         safety_settings={
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
