@@ -181,7 +181,7 @@ if st.session_state['user_role'] == 'technician':
                 st.error(f"Failed to clear database: {str(e)}")
 
 # --- Main Search Interface ---
-st.title("🛠️ VX-Series Assistant")
+st.title("🛠️ IP50-Series Assistant")
 query = st.text_input("Ask a technical question:")
 
 if query:
