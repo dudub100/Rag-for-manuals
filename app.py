@@ -10,10 +10,21 @@ from pinecone import Pinecone
 st.set_page_config(page_title="VX-Series Technical Assistant", layout="centered")
 
 # --- TEMPORARY HARDCODED DATABASE TO BYPASS CACHE ---
+
+# 1. Start with your temporary hardcoded database
 USER_DB = {
     "Dudub": "dudu1408,technician",
     "Customer": "cust1234,customer"
 }
+
+# 2. Check if a [users] section exists in Streamlit Secrets, and merge it
+if "users" in st.secrets:
+    # This safely pulls everything under the [users] section from secrets
+    secrets_users = st.secrets["users"]
+    
+    # Merge the secrets dictionary into our hardcoded dictionary
+    # (If a username exists in both, the secrets file value will override the hardcoded one)
+    USER_DB.update(secrets_users)
 
 ROLE_FILTERS = {
     "customer": {"role": "customer"},
