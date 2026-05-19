@@ -156,68 +156,72 @@ if st.session_state['user_role'] == 'technician':
             import fitz  # PyMuPDF
             from langchain_core.messages import HumanMessage
             from langchain_core.documents import Document
+            import time
             
-            # Create a live status box that updates in real-time
-            status_box = st.status("Initializing Multimodal Processing...", expanded=True)
+            status_box = st.status("Initializing Hybrid Processing...", expanded=True)
             
             try:
-                # Read PDF bytes directly from memory
                 pdf_bytes = uploaded_file.getvalue()
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 total_pages = len(doc)
                 
-                status_box.update(label=f"PDF Loaded successfully. Total pages to analyze: {total_pages}", state="running")
+                status_box.update(label=f"PDF Loaded. Analyzing {total_pages} pages using Hybrid Pipeline...", state="running")
                 
                 enriched_pages = []
                 progress_bar = st.progress(0)
                 
-                # Iterate through pages, convert to images, and process via LLM
                 for i in range(total_pages):
                     current_page_num = i + 1
-                    status_box.write(f"⏳ Processing Page {current_page_num} of {total_pages}... (Rendering image & calling Gemini Vision)")
-                    
                     page = doc.load_page(i)
-                    pix = page.get_pixmap(dpi=120)  # Slightly reduced DPI to speed up network transfer significantly
-                    img_base64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
                     
-                    prompt = """
-                    You are a technical documentation assistant. 
-                    1. Extract all text from this manual page exactly as written.
-                    2. If there are any screenshots, diagrams, tables, or UI panels, write a highly detailed description of them. Include specific button names, field targets, IP addresses, toggles, or exact data values visible in the image.
-                    Format your response cleanly.
-                    """
+                    # Check if the page physically contains images/screenshots
+                    has_images = bool(page.get_images())
                     
-                    message = HumanMessage(
-                        content=[
-                            {"type": "text", "text": prompt},
-                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
-                        ]
-                    )
+                    if has_images:
+                        status_box.write(f"📸 Page {current_page_num}/{total_pages}: Screenshot/Image detected. Invoking Gemini Vision...")
+                        
+                        pix = page.get_pixmap(dpi=110)  # Optimized DPI for speed
+                        img_base64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
+                        
+                        prompt = """
+                        You are a technical documentation assistant. 
+                        1. Extract all text from this manual page exactly as written.
+                        2. If there are any screenshots, diagrams, tables, or UI panels, write a highly detailed description of them. Include specific button names, field targets, IP addresses, toggles, or exact data values visible in the image.
+                        Format your response cleanly.
+                        """
+                        
+                        message = HumanMessage(
+                            content=[
+                                {"type": "text", "text": prompt},
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_base64}"}}
+                            ]
+                        )
+                        
+                        response = llm.invoke([message])
+                        page_content = response.content
+                        
+                        # Anti-rate limit throttling for API calls
+                        time.sleep(1)
+                    else:
+                        status_box.write(f"📄 Page {current_page_num}/{total_pages}: Native text detected. Extracting instantly...")
+                        # Fast native text extraction (0 API cost, instantaneous)
+                        page_content = page.get_text()
                     
-                    # Invoke Gemini to read and inspect the page
-                    response = llm.invoke([message])
-                    enriched_pages.append(Document(page_content=response.content, metadata={"page": current_page_num}))
-                    
-                    # Update progress bar
+                    enriched_pages.append(Document(page_content=page_content, metadata={"page": current_page_num}))
                     progress_bar.progress(current_page_num / total_pages)
                 
-                status_box.write("⚙️ Splitting enriched data into text chunks for the database...")
-                # Chunk the combined text and vision descriptions
+                status_box.write("⚙️ Splitting enriched data into text chunks...")
                 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 chunks = text_splitter.split_documents(enriched_pages)
                 
-                # Inject security permissions and filename tracking metadata
                 for chunk in chunks:
                     chunk.metadata.update({"role": doc_role, "source": uploaded_file.name})
                     
-                status_box.write(f"🚀 Uploading {len(chunks)} text chunks into Pinecone Vector Database...")
-                
-                # Store structural embeddings into Pinecone
+                status_box.write(f"🚀 Uploading {len(chunks)} chunks into Pinecone...")
                 vectorstore.add_documents(chunks)
                 
-                # Final complete state
-                status_box.update(label=f"✅ Successfully processed and secured: {uploaded_file.name}", state="complete", expanded=False)
-                st.success(f"Manual storage complete! {len(chunks)} verified vectors loaded.")
+                status_box.update(label=f"✅ Successfully processed: {uploaded_file.name}", state="complete", expanded=False)
+                st.success(f"Storage complete! {len(chunks)} vectors verified.")
                 
             except Exception as e:
                 status_box.update(label="❌ Processing Failed", state="error")
