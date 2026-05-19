@@ -108,9 +108,6 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("📚 Active Manuals in DB")
 
 try:
-    # Fetch a sample of vectors to inspect what sources exist
-    # Note: Pinecone doesn't have a simple "list unique attributes" API, 
-    # so we pull a dummy query to see what metadata is floating inside.
     pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
     idx = pc.Index(INDEX_NAME)
     stats = idx.describe_index_stats()
@@ -118,12 +115,32 @@ try:
     total_count = stats.get('total_vector_count', 0)
     st.sidebar.caption(f"Total Vector Chunks: {total_count}")
     
-    # If there are vectors, let's remind the admin they can test querying
     if total_count > 0:
-        st.sidebar.info("Database is populated and actively responding to queries.")
+        # Create a dummy vector to force Pinecone to return a large sample of chunks
+        dummy_vector = [0.1] * 768 
+        
+        # Query the database for up to 1000 chunks
+        response = idx.query(
+            vector=dummy_vector, 
+            top_k=1000, 
+            include_metadata=True
+        )
+        
+        # Extract unique file names from the metadata of those chunks
+        unique_files = set()
+        for match in response.get("matches", []):
+            if "metadata" in match and "source" in match["metadata"]:
+                unique_files.add(match["metadata"]["source"])
+                
+        # Display the unique files in the sidebar
+        if unique_files:
+            for file in unique_files:
+                st.sidebar.markdown(f"- 📄 `{file}`")
+        else:
+            st.sidebar.info("Database is populated, but metadata tracking is empty.")
     else:
         st.sidebar.warning("Database is currently empty.")
-except Exception:
+except Exception as e:
     st.sidebar.caption("Connect an index to view library status.")
 
 # --- Admin Function: Uploading & Managing Manuals (Multimodal Vision Engine) ---
