@@ -158,14 +158,14 @@ if st.session_state['user_role'] == 'technician':
             from langchain_core.documents import Document
             import time
             
-            status_box = st.status("Initializing Hybrid Processing...", expanded=True)
+            status_box = st.status("Initializing Heavy-Duty Processing...", expanded=True)
             
             try:
                 pdf_bytes = uploaded_file.getvalue()
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
                 total_pages = len(doc)
                 
-                status_box.update(label=f"PDF Loaded. Analyzing {total_pages} pages using Hybrid Pipeline...", state="running")
+                status_box.update(label=f"PDF Loaded. Processing {total_pages} pages...", state="running")
                 
                 enriched_pages = []
                 progress_bar = st.progress(0)
@@ -174,19 +174,33 @@ if st.session_state['user_role'] == 'technician':
                     current_page_num = i + 1
                     page = doc.load_page(i)
                     
-                    # Check if the page physically contains images/screenshots
-                    has_images = bool(page.get_images())
+                    # Analyze images on the page
+                    image_list = page.get_images()
+                    needs_vision = False
                     
-                    if has_images:
-                        status_box.write(f"📸 Page {current_page_num}/{total_pages}: Screenshot/Image detected. Invoking Gemini Vision...")
+                    # Smart Filter: Check if images are actual screenshots, not just tiny logos
+                    if image_list:
+                        for img in image_list:
+                            xref = img[0]
+                            base_image = doc.extract_image(xref)
+                            if base_image:
+                                width = base_image.get("width", 0)
+                                height = base_image.get("height", 0)
+                                # Only use Vision API if the image is larger than 100x100 pixels
+                                if width > 100 and height > 100:
+                                    needs_vision = True
+                                    break
+                    
+                    if needs_vision:
+                        status_box.write(f"📸 Page {current_page_num}/{total_pages}: Large diagram detected. Asking Gemini...")
                         
-                        pix = page.get_pixmap(dpi=110)  # Optimized DPI for speed
+                        pix = page.get_pixmap(dpi=100) # Lower DPI to save bandwidth
                         img_base64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
                         
                         prompt = """
                         You are a technical documentation assistant. 
                         1. Extract all text from this manual page exactly as written.
-                        2. If there are any screenshots, diagrams, tables, or UI panels, write a highly detailed description of them. Include specific button names, field targets, IP addresses, toggles, or exact data values visible in the image.
+                        2. If there are any screenshots, diagrams, tables, or UI panels, write a highly detailed description of them.
                         Format your response cleanly.
                         """
                         
@@ -200,31 +214,35 @@ if st.session_state['user_role'] == 'technician':
                         response = llm.invoke([message])
                         page_content = response.content
                         
-                        # Anti-rate limit throttling for API calls
-                        time.sleep(1)
+                        # PACE MAKER: Force a 4-second pause to prevent Google from rate-limiting the app
+                        status_box.write(f"⏱️ Pacing API to avoid rate limits... waiting 4 seconds.")
+                        time.sleep(4) 
+                        
                     else:
-                        status_box.write(f"📄 Page {current_page_num}/{total_pages}: Native text detected. Extracting instantly...")
-                        # Fast native text extraction (0 API cost, instantaneous)
+                        status_box.write(f"📄 Page {current_page_num}/{total_pages}: Pure text or tiny logos. Extracting instantly...")
                         page_content = page.get_text()
                     
+                    # Add to our list
                     enriched_pages.append(Document(page_content=page_content, metadata={"page": current_page_num}))
+                    
+                    # Update progress bar
                     progress_bar.progress(current_page_num / total_pages)
                 
-                status_box.write("⚙️ Splitting enriched data into text chunks...")
+                status_box.write("⚙️ All pages read! Splitting data into text chunks...")
                 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 chunks = text_splitter.split_documents(enriched_pages)
                 
                 for chunk in chunks:
                     chunk.metadata.update({"role": doc_role, "source": uploaded_file.name})
                     
-                status_box.write(f"🚀 Uploading {len(chunks)} chunks into Pinecone...")
+                status_box.write(f"🚀 Uploading {len(chunks)} chunks into Pinecone Database...")
                 vectorstore.add_documents(chunks)
                 
                 status_box.update(label=f"✅ Successfully processed: {uploaded_file.name}", state="complete", expanded=False)
                 st.success(f"Storage complete! {len(chunks)} vectors verified.")
                 
             except Exception as e:
-                status_box.update(label="❌ Processing Failed", state="error")
+                status_box.update(label=f"❌ Failed at Page {current_page_num}", state="error")
                 st.error(f"System Pipeline Error: {str(e)}")
 
     # Section 2: Emergency Database Management
