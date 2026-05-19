@@ -103,6 +103,29 @@ def init_rag():
 
 llm, vectorstore = init_rag()
 
+# --- Optional Utility: List Active Manuals in Sidebar ---
+st.sidebar.markdown("---")
+st.sidebar.subheader("📚 Active Manuals in DB")
+
+try:
+    # Fetch a sample of vectors to inspect what sources exist
+    # Note: Pinecone doesn't have a simple "list unique attributes" API, 
+    # so we pull a dummy query to see what metadata is floating inside.
+    pc = Pinecone(api_key=st.secrets["PINECONE_API_KEY"])
+    idx = pc.Index(INDEX_NAME)
+    stats = idx.describe_index_stats()
+    
+    total_count = stats.get('total_vector_count', 0)
+    st.sidebar.caption(f"Total Vector Chunks: {total_count}")
+    
+    # If there are vectors, let's remind the admin they can test querying
+    if total_count > 0:
+        st.sidebar.info("Database is populated and actively responding to queries.")
+    else:
+        st.sidebar.warning("Database is currently empty.")
+except Exception:
+    st.sidebar.caption("Connect an index to view library status.")
+
 # --- Admin Function: Uploading & Managing Manuals (Multimodal Vision Engine) ---
 if st.session_state['user_role'] == 'technician':
     st.sidebar.markdown("---")
@@ -117,21 +140,29 @@ if st.session_state['user_role'] == 'technician':
             from langchain_core.messages import HumanMessage
             from langchain_core.documents import Document
             
-            with st.spinner("Analyzing pages and UI screenshots with Gemini Vision..."):
+            # Create a live status box that updates in real-time
+            status_box = st.status("Initializing Multimodal Processing...", expanded=True)
+            
+            try:
                 # Read PDF bytes directly from memory
                 pdf_bytes = uploaded_file.getvalue()
                 doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                total_pages = len(doc)
+                
+                status_box.update(label=f"PDF Loaded successfully. Total pages to analyze: {total_pages}", state="running")
                 
                 enriched_pages = []
                 progress_bar = st.progress(0)
                 
-                # Iterate through pages, convert to high-res images, and process via LLM
-                for i in range(len(doc)):
+                # Iterate through pages, convert to images, and process via LLM
+                for i in range(total_pages):
+                    current_page_num = i + 1
+                    status_box.write(f"⏳ Processing Page {current_page_num} of {total_pages}... (Rendering image & calling Gemini Vision)")
+                    
                     page = doc.load_page(i)
-                    pix = page.get_pixmap(dpi=150)  # Render page image
+                    pix = page.get_pixmap(dpi=120)  # Slightly reduced DPI to speed up network transfer significantly
                     img_base64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
                     
-                    # Structuring the contextual vision instructions
                     prompt = """
                     You are a technical documentation assistant. 
                     1. Extract all text from this manual page exactly as written.
@@ -146,13 +177,14 @@ if st.session_state['user_role'] == 'technician':
                         ]
                     )
                     
-                    # Invoke Gemini to read and inspect the page artifact
+                    # Invoke Gemini to read and inspect the page
                     response = llm.invoke([message])
-                    enriched_pages.append(Document(page_content=response.content, metadata={"page": i+1}))
+                    enriched_pages.append(Document(page_content=response.content, metadata={"page": current_page_num}))
                     
-                    # Advance the layout progress indicator
-                    progress_bar.progress((i + 1) / len(doc))
+                    # Update progress bar
+                    progress_bar.progress(current_page_num / total_pages)
                 
+                status_box.write("⚙️ Splitting enriched data into text chunks for the database...")
                 # Chunk the combined text and vision descriptions
                 text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                 chunks = text_splitter.split_documents(enriched_pages)
@@ -161,12 +193,18 @@ if st.session_state['user_role'] == 'technician':
                 for chunk in chunks:
                     chunk.metadata.update({"role": doc_role, "source": uploaded_file.name})
                     
+                status_box.write(f"🚀 Uploading {len(chunks)} text chunks into Pinecone Vector Database...")
+                
                 # Store structural embeddings into Pinecone
-                try:
-                    vectorstore.add_documents(chunks)
-                    st.success(f"Successfully loaded and vision-processed: {uploaded_file.name}")
-                except Exception as e:
-                    st.error(f"Google API Error: {str(e)}")
+                vectorstore.add_documents(chunks)
+                
+                # Final complete state
+                status_box.update(label=f"✅ Successfully processed and secured: {uploaded_file.name}", state="complete", expanded=False)
+                st.success(f"Manual storage complete! {len(chunks)} verified vectors loaded.")
+                
+            except Exception as e:
+                status_box.update(label="❌ Processing Failed", state="error")
+                st.error(f"System Pipeline Error: {str(e)}")
 
     # Section 2: Emergency Database Management
     with st.sidebar.expander("Admin: Danger Zone", expanded=False):
