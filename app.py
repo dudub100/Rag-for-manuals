@@ -194,8 +194,8 @@ if st.session_state['user_role'] == 'technician':
                 
                 progress_bar = st.progress(last_processed_page / total_pages)
                 
-                # 2. BATCH PROCESSING: Define a batch size
-                BATCH_SIZE = 10 
+                # 2. BATCH PROCESSING: Save to database every 1 page
+                BATCH_SIZE = 1 
                 enriched_pages_batch = []
                 
                 # Start loop from the last processed page
@@ -213,13 +213,16 @@ if st.session_state['user_role'] == 'technician':
                             if base_image:
                                 width = base_image.get("width", 0)
                                 height = base_image.get("height", 0)
-                                if width > 100 and height > 100:
+                                # INCREASED THRESHOLD: Ignore anything smaller than 200x200
+                                if width > 200 and height > 200:
                                     needs_vision = True
                                     break
                     
                     if needs_vision:
                         status_box.write(f"📸 Page {current_page_num}/{total_pages}: Large diagram detected. Asking Gemini...")
-                        pix = page.get_pixmap(dpi=100) 
+                        
+                        # LOWER DPI: 72 is standard web resolution and processes much faster
+                        pix = page.get_pixmap(dpi=72) 
                         img_base64 = base64.b64encode(pix.tobytes("png")).decode("utf-8")
                         
                         prompt = """
@@ -236,22 +239,37 @@ if st.session_state['user_role'] == 'technician':
                             ]
                         )
                         
-                        response = llm.invoke([message])
-                        page_content = response.content
-                        
-                        time.sleep(4) 
+                        # DYNAMIC RATE LIMITING: Try immediately, only sleep if rejected
+                        success = False
+                        retries = 3
+                        for attempt in range(retries):
+                            try:
+                                response = llm.invoke([message])
+                                page_content = response.content
+                                success = True
+                                break # Exit the retry loop on success
+                            except Exception as api_error:
+                                error_msg = str(api_error).lower()
+                                if "429" in error_msg or "quota" in error_msg:
+                                    status_box.write(f"⏱️ Google rate limit hit. Pausing for 10 seconds... (Attempt {attempt+1}/{retries})")
+                                    time.sleep(10)
+                                else:
+                                    raise api_error # Re-raise if it's a different crash
+                                    
+                        if not success:
+                            raise Exception("Failed to process image after multiple retries due to rate limits.")
                         
                     else:
-                        status_box.write(f"📄 Page {current_page_num}/{total_pages}: Pure text or tiny logos. Extracting...")
+                        status_box.write(f"📄 Page {current_page_num}/{total_pages}: Pure text. Extracting instantly...")
                         page_content = page.get_text()
                     
                     # Add to our current batch
                     enriched_pages_batch.append(Document(page_content=page_content, metadata={"page": current_page_num}))
                     progress_bar.progress(current_page_num / total_pages)
                     
-                    # 3. UPLOAD IN CHUNKS: When batch is full (or it's the last page), process and upload
+                    # 3. UPLOAD IN CHUNKS: Process and upload every time the batch hits 1
                     if len(enriched_pages_batch) >= BATCH_SIZE or current_page_num == total_pages:
-                        status_box.write(f"⚙️ Uploading batch (Pages {current_page_num - len(enriched_pages_batch) + 1} to {current_page_num})...")
+                        status_box.write(f"⚙️ Saving Page {current_page_num} to database...")
                         
                         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
                         chunks = text_splitter.split_documents(enriched_pages_batch)
@@ -259,11 +277,11 @@ if st.session_state['user_role'] == 'technician':
                         for chunk in chunks:
                             chunk.metadata.update({"role": doc_role, "source": uploaded_file.name})
                             
-                        # Add batch to Pinecone
+                        # Add chunk to Pinecone immediately
                         vectorstore.add_documents(chunks)
                         
-                        # CLEAR memory for the next batch
-                        enriched_pages_batch = [] 
+                        # CLEAR memory for the next page
+                        enriched_pages_batch = []
                 
                 status_box.update(label=f"✅ Successfully processed and resumed: {uploaded_file.name}", state="complete", expanded=False)
                 st.success(f"Storage complete for {uploaded_file.name}!")
