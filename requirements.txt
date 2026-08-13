@@ -5,3 +5,6 @@ langchain-google-genai
 langchain-pinecone
 pinecone
 PyMuPDF
+langchain-huggingface
+sentence-transformers
+huggingface-hub
