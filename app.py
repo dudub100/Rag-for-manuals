@@ -77,7 +77,7 @@ MODEL_OPTIONS = {
     "Qwen 2.5 72B Instruct (HF - Deep Telecom/Engineering)": "Qwen/Qwen2.5-72B-Instruct",
     "Llama 3.3 70B Instruct (HF - Open Telecom Standards)": "meta-llama/Llama-3.3-70B-Instruct",
     "Qwen 3.8": "Qwen/Qwen3.8-2.4T-A95B",
-    "mistraAI": "mistralai/Mistral-7B-Instruct-v0.31"
+    "mistraAI": "mistralai/Mistral-7B-Instruct-v0.3"
 }
 
 selected_model_label = st.sidebar.selectbox("Select Reasoning / Chat Model:", list(MODEL_OPTIONS.keys()))
