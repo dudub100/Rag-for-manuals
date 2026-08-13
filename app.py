@@ -76,9 +76,8 @@ MODEL_OPTIONS = {
     "Gemini 2.5 Flash (Google - Multimodal & Fast)": "gemini-2.5-flash",
     "Qwen 2.5 72B Instruct (HF - Deep Telecom/Engineering)": "Qwen/Qwen2.5-72B-Instruct",
     "Llama 3.3 70B Instruct (HF - Open Telecom Standards)": "meta-llama/Llama-3.3-70B-Instruct",
-    "Telecom-LLM / Open Telecom (HF)": "telecom-llm/Telecom-LLM-7b",
     "Qwen 3.8": "Qwen/Qwen3.8-2.4T-A95B",
-    "TelecomGPT-R1": "KU-DFI/TelecomGPT-R1"
+    "mistraAI": "mistralai/Mistral-7B-Instruct-v0.31"
 }
 
 selected_model_label = st.sidebar.selectbox("Select Reasoning / Chat Model:", list(MODEL_OPTIONS.keys()))
