@@ -84,7 +84,6 @@ selected_model_id = MODEL_OPTIONS[selected_model_label]
 
 # 2. Embedding Engine Selection
 EMBEDDING_OPTIONS = {
-    "BGE Base English (HuggingFace 768d - High Density)": "hf_bge",
     "Gemini Embeddings (Google 768d)": "gemini"
 }
 selected_embedding_type = st.sidebar.selectbox("Select Embedding Engine:", list(EMBEDDING_OPTIONS.keys()))
