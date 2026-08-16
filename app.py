@@ -305,7 +305,7 @@ if st.session_state['user_role'] == 'technician':
 
 
 # --- MAIN SEARCH & TELECOM CHAT INTERFACE ---
-st.title("💬 IP50 / VX-Series Chat Assistant")
+st.title("💬 IP50EX/CX/GP/20N-Series Chat Assistant")
 st.caption(f"Active Chat Reasoning Engine: **{selected_model_label}**")
 
 # Replace with your actual Hugging Face username and dataset name
