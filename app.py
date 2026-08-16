@@ -73,9 +73,9 @@ st.sidebar.subheader("🤖 Model Settings")
 
 # 1. Chat Model Dropdown Selection
 MODEL_OPTIONS = {
-    "Gemini 2.5 Flash (Google - Multimodal & Fast)": "gemini-2.5-flash",
     "Qwen 2.5 72B Instruct (HF - Deep Telecom/Engineering)": "Qwen/Qwen2.5-72B-Instruct",
     "Llama 3.3 70B Instruct (HF - Open Telecom Standards)": "meta-llama/Llama-3.3-70B-Instruct",
+    "Gemini 2.5 Flash (Google - Multimodal & Fast)": "gemini-2.5-flash",
     "Qwen 3.8": "Qwen/Qwen3.8-2.4T-A95B"
 }
 
