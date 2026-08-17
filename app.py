@@ -5,7 +5,6 @@ import time
 import fitz  # PyMuPDF
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI, HarmCategory, HarmBlockThreshold
-from langchain_huggingface import HuggingFaceEmbeddings, HuggingFaceEndpoint, ChatHuggingFace
 from langchain_pinecone import PineconeVectorStore
 from langchain_core.messages import HumanMessage
 from langchain_core.documents import Document
@@ -83,11 +82,11 @@ MODEL_OPTIONS = {
     "Qwen 3.8": "Qwen/Qwen3.8-2.4T-A95B"
 }
 '''
-# 1. Chat Model Dropdown Selection
+# 1. Chat Model Dropdown Selection (Universal Router)
 MODEL_OPTIONS = {
     "Gemini 2.5 Flash (Google)": "gemini:gemini-2.5-flash",
-    "Llama 3.3 70B (Groq - Fast & Free)": "groq:llama-3.3-70b-versatile",
-    "Mixtral 8x7B (Groq - Free)": "groq:mixtral-8x7b-32768",
+    "GPT-OSS 120B (Groq - Deep Logic & Telecom, Free)": "groq:openai/gpt-oss-120b",
+    "GPT-OSS 20B (Groq - Lightning Fast, Free)": "groq:openai/gpt-oss-20b",
     "Auto-Free Open Source (OpenRouter)": "openrouter:openrouter/free",
     "Llama 3 8B (OpenRouter - Free)": "openrouter:meta-llama/llama-3.1-8b-instruct:free"
 }
