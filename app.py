@@ -73,15 +73,7 @@ st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Model Settings")
 
 
-# 1. Chat Model Dropdown Selection
-'''
-MODEL_OPTIONS = {
-    "Gemini 2.5 Flash (Google - Multimodal & Fast)": "gemini-2.5-flash",
-    "Qwen 2.5 72B Instruct (HF - Deep Telecom/Engineering)": "Qwen/Qwen2.5-72B-Instruct",
-    "Llama 3.3 70B Instruct (HF - Open Telecom Standards)": "meta-llama/Llama-3.3-70B-Instruct",
-    "Qwen 3.8": "Qwen/Qwen3.8-2.4T-A95B"
-}
-'''
+
 # 1. Chat Model Dropdown Selection (Universal Router)
 MODEL_OPTIONS = {
     "Gemini 2.5 Flash (Google)": "gemini:gemini-2.5-flash",
@@ -127,35 +119,7 @@ def get_vision_llm():
         }
     )
 
-'''
-def get_chat_llm(model_id):
-    """Instantiates the user-selected Chat Reasoning model."""
-    if "gemini" in model_id:
-        return ChatGoogleGenerativeAI(
-            model=model_id,
-            temperature=0,
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-        )
-    else:
-        hf_token = st.secrets.get("HUGGINGFACEHUB_API_TOKEN", os.environ.get("HUGGINGFACEHUB_API_TOKEN", ""))
-        if not hf_token:
-            st.error("⚠️ Hugging Face API Token missing in st.secrets! Defaulting back to Gemini.")
-            return get_chat_llm("gemini-2.5-flash")
-        
-        endpoint = HuggingFaceEndpoint(
-            repo_id=model_id,
-            task="text-generation",
-            max_new_tokens=1024,
-            do_sample=False,
-            huggingfacehub_api_token=hf_token
-        )
-        return ChatHuggingFace(llm=endpoint)
-'''
+
 
 def get_chat_llm(selected_value):
     """Instantiates the user-selected Chat Reasoning model across multiple providers."""
