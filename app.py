@@ -11,6 +11,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.documents import Document
 from pinecone import Pinecone
 from langchain_openai import ChatOpenAI
+from langchain_groq import ChatGroq
 
 # --- Page Configuration ---
 st.set_page_config(page_title="VX/IP-Series Hybrid Telecom Assistant", layout="centered")
@@ -84,11 +85,12 @@ MODEL_OPTIONS = {
 '''
 # 1. Chat Model Dropdown Selection
 MODEL_OPTIONS = {
-    "Gemini 2.5 Flash (Google - Multimodal & Fast)": "gemini-2.5-flash",
-    "Auto-Free Open Source (OpenRouter - FREE)": "openrouter/free",
-    "Llama 3 8B Instruct (OpenRouter - FREE)": "meta-llama/llama-3.1-8b-instruct:free"
+    "Gemini 2.5 Flash (Google)": "gemini:gemini-2.5-flash",
+    "Llama 3.3 70B (Groq - Fast & Free)": "groq:llama-3.3-70b-versatile",
+    "Mixtral 8x7B (Groq - Free)": "groq:mixtral-8x7b-32768",
+    "Auto-Free Open Source (OpenRouter)": "openrouter:openrouter/free",
+    "Llama 3 8B (OpenRouter - Free)": "openrouter:meta-llama/llama-3.1-8b-instruct:free"
 }
-
 
 selected_model_label = st.sidebar.selectbox("Select Reasoning / Chat Model:", list(MODEL_OPTIONS.keys()))
 selected_model_id = MODEL_OPTIONS[selected_model_label]
@@ -156,10 +158,13 @@ def get_chat_llm(model_id):
         return ChatHuggingFace(llm=endpoint)
 '''
 
-def get_chat_llm(model_id):
-    """Instantiates the user-selected Chat Reasoning model."""
-    if "gemini" in model_id:
-        # Keep Gemini as your reliable fallback
+def get_chat_llm(selected_value):
+    """Instantiates the user-selected Chat Reasoning model across multiple providers."""
+    # Split the string to find the provider and the actual model ID
+    # e.g. "groq:llama-3.3-70b-versatile" -> provider="groq", model_id="llama-3.3-70b-versatile"
+    provider, model_id = selected_value.split(":", 1)
+    
+    if provider == "gemini":
         return ChatGoogleGenerativeAI(
             model=model_id,
             temperature=0,
@@ -170,13 +175,26 @@ def get_chat_llm(model_id):
                 HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
             }
         )
-    else:
-        # Use OpenRouter for the Free Open-Source Models
+        
+    elif provider == "groq":
+        groq_key = st.secrets.get("GROQ_API_KEY")
+        if not groq_key:
+            st.error("⚠️ GROQ_API_KEY missing in secrets! Defaulting to Gemini.")
+            return get_chat_llm("gemini:gemini-2.5-flash")
+            
+        return ChatGroq(
+            groq_api_key=groq_key,
+            model_name=model_id,
+            temperature=0.01,
+            max_tokens=1024
+        )
+        
+    elif provider == "openrouter":
         or_key = st.secrets.get("OPENROUTER_API_KEY")
         if not or_key:
-            st.error("⚠️ OpenRouter API Key missing! Defaulting to Gemini.")
-            return get_chat_llm("gemini-2.5-flash")
-        
+            st.error("⚠️ OPENROUTER_API_KEY missing in secrets! Defaulting to Gemini.")
+            return get_chat_llm("gemini:gemini-2.5-flash")
+            
         return ChatOpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=or_key,
@@ -184,7 +202,6 @@ def get_chat_llm(model_id):
             temperature=0.01,
             max_tokens=1024
         )
-
 
 
 # Initialize Active Components
