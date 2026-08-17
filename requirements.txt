@@ -9,3 +9,4 @@ langchain-huggingface
 sentence-transformers
 huggingface-hub
 langchain-openai
+langchain-groq
