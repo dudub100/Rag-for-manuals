@@ -82,9 +82,10 @@ MODEL_OPTIONS = {
     "Qwen 3.8": "Qwen/Qwen3.8-2.4T-A95B"
 }
 '''
+# 1. Chat Model Dropdown Selection
 MODEL_OPTIONS = {
     "Gemini 2.5 Flash (Google - Multimodal & Fast)": "gemini-2.5-flash",
-    "Qwen 2.5 7B Instruct (OpenRouter - FREE)": "qwen/qwen-2.5-7b-instruct:free",
+    "Auto-Free Open Source (OpenRouter - FREE)": "openrouter/free",
     "Llama 3 8B Instruct (OpenRouter - FREE)": "meta-llama/llama-3.1-8b-instruct:free"
 }
 
