@@ -12,3 +12,4 @@ itur
 astropy
 scipy
 numpy
+# Force Streamlit to rebuild environment
