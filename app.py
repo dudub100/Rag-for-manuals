@@ -11,6 +11,10 @@ from langchain_core.documents import Document
 from pinecone import Pinecone
 from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
+from langgraph.prebuilt import create_react_agent
+from langchain_core.tools import tool
+from langchain.tools.retriever import create_retriever_tool
+from langchain_core.messages import SystemMessage
 
 # --- Page Configuration ---
 st.set_page_config(page_title="VX/IP-Series Hybrid Telecom Assistant", layout="centered")
@@ -321,10 +325,155 @@ if st.session_state['user_role'] == 'technician':
             except Exception as e:
                 st.error(f"Failed to clear database: {str(e)}")
 
+
+# --- 4. Define Agent Tools ---
+
+@tool
+import math
+import numpy as np
+from scipy.optimize import root_scalar
+import astropy.units as u
+import itur
+from langchain_core.tools import tool
+
+@tool
+def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequency_ghz: float, availability_pct: float) -> str:
+    """
+    Computes Free Space Loss (FSL), Atmospheric Attenuation, and Rain Attenuation for a specific location.
+    Requires: latitude, longitude, link distance (km), frequency (GHz), and target availability (%).
+    """
+    f = frequency_ghz * u.GHz
+    d = distance_km * u.km
+    p = (100.0 - availability_pct) # Exceedance probability
+
+    # Free Space Loss (FSL)
+    fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
+    
+    # Atmospheric Gaseous Attenuation (ITU-R P.676)
+    # Assumes standard atmospheric conditions (15°C, 1013.25 hPa, 7.5 g/m^3 water vapor)
+    T = 15 * u.deg_C
+    P = 1013.25 * u.hPa
+    rho = 7.5 * (u.g / u.m**3)
+    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, P, rho, T)
+    
+    # Rain Attenuation (ITU-R P.530 / P.838 / P.837)
+    # Note: ITU-R models expect horizontal/vertical polarization. We default to Horizontal (0 deg) for worst-case.
+    el = 0 * u.deg # Terrestrial link
+    tau = 0 * u.deg # Horizontal polarization
+    a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, el, p, tau)
+    
+    return (f"FSL: {fsl_db:.2f} dB\n"
+            f"Atmospheric Gas Attenuation: {gamma_gas.value:.2f} dB\n"
+            f"Rain Attenuation ({availability_pct}% availability): {a_rain.value:.2f} dB")
+
+@tool
+def calculate_antenna_specs(frequency_ghz: float, diameter: float, unit: str) -> str:
+    """
+    Calculates parabolic dish antenna gain (dBi) and Half-Power Beamwidth (degrees).
+    Requires: frequency (GHz), diameter, and unit ('cm' or 'ft').
+    """
+    # Convert diameter to meters
+    if unit.lower() == 'ft':
+        diameter_m = diameter * 0.3048
+    elif unit.lower() == 'cm':
+        diameter_m = diameter / 100.0
+    else:
+        diameter_m = diameter # assume meters fallback
+
+    # Constants
+    c = 299792458.0 # m/s
+    f_hz = frequency_ghz * 1e9
+    wavelength_m = c / f_hz
+    efficiency = 0.60 # Standard 60% aperture efficiency
+    
+    # Gain Calculation
+    gain_linear = efficiency * ((math.pi * diameter_m) / wavelength_m)**2
+    gain_dbi = 10 * math.log10(gain_linear)
+    
+    # Beamwidth Calculation
+    beamwidth_deg = 70 * (wavelength_m / diameter_m)
+    
+    return f"Antenna Gain: {gain_dbi:.2f} dBi, Half-Power Beamwidth: {beamwidth_deg:.2f}°"
+
+@tool
+def calculate_rx_threshold(qam_level: int, channel_bw_mhz: float, frequency_ghz: float) -> str:
+    """
+    Estimates the receive level threshold (dBm) based on the Shannon limit, coding rate (0.88), 
+    and dynamically scaled Noise Figure.
+    Requires: QAM level (e.g., 1024), channel bandwidth (MHz), and frequency (GHz).
+    """
+    # 1. Spectral Efficiency (bits/symbol)
+    m = math.log2(qam_level)
+    coding_rate = 0.88
+    spectral_efficiency = m * coding_rate
+    
+    # 2. Required SNR based on Shannon Limit + margins
+    # Shannon: C/B = log2(1 + SNR) -> SNR_linear = 2^(C/B) - 1
+    snr_linear = (2 ** spectral_efficiency) - 1
+    snr_req_db = 10 * math.log10(snr_linear) + 1.6 + 4.0
+    
+    # 3. Dynamic Noise Figure (Interpolated 3dB to 7dB between 6GHz and 84GHz)
+    # Bound the frequencies to avoid negative or extreme NFs
+    freq_bounded = max(6.0, min(84.0, frequency_ghz))
+    nf_db = 3.0 + ((7.0 - 3.0) / (84.0 - 6.0)) * (freq_bounded - 6.0)
+    
+    # 4. Thermal Noise and Final Threshold
+    thermal_noise_dbm = -174.0 + 10 * math.log10(channel_bw_mhz * 1e6)
+    rx_threshold_dbm = thermal_noise_dbm + nf_db + snr_req_db
+    
+    return (f"Rx Threshold: {rx_threshold_dbm:.2f} dBm\n"
+            f"(Calculated using {nf_db:.2f}dB NF and {snr_req_db:.2f}dB Required SNR)")
+
+@tool
+def calculate_link_availability(qam_level: int, channel_bw_mhz: float, distance_km: float, 
+                              antenna_diameter_m: float, frequency_ghz: float, tx_power_dbm: float, 
+                              lat: float, lon: float) -> str:
+    """
+    Calculates expected link availability (%) by running a full link budget.
+    Requires: QAM, BW (MHz), distance (km), antenna diameter (m), frequency (GHz), Tx Power (dBm), lat, and lon.
+    """
+    # 1. Get Tx/Rx parameters
+    rx_thresh_str = calculate_rx_threshold.invoke({"qam_level": qam_level, "channel_bw_mhz": channel_bw_mhz, "frequency_ghz": frequency_ghz})
+    rx_threshold = float(rx_thresh_str.split(":")[1].split("dBm")[0].strip())
+    
+    ant_specs_str = calculate_antenna_specs.invoke({"frequency_ghz": frequency_ghz, "diameter": antenna_diameter_m, "unit": "m"})
+    gain_dbi = float(ant_specs_str.split("Gain:")[1].split("dBi")[0].strip())
+    
+    # 2. Get clear sky propagation
+    f = frequency_ghz * u.GHz
+    d = distance_km * u.km
+    fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
+    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, 1013.25*u.hPa, 7.5*(u.g/u.m**3), 15*u.deg_C).value
+    
+    # 3. Calculate Fade Margin
+    # Assumes identical antennas at both ends: Tx + Gain(Tx) - FSL - Gas + Gain(Rx)
+    rx_clear_sky = tx_power_dbm + (2 * gain_dbi) - fsl_db - gamma_gas
+    fade_margin = rx_clear_sky - rx_threshold
+    
+    if fade_margin <= 0:
+        return f"Link fails in clear sky. Fade margin is {fade_margin:.2f} dB."
+
+    # 4. Iteratively solve for Availability using ITU-R P.530
+    def fade_difference(p_exceedance):
+        # We find the exceedance probability 'p' where rain attenuation exactly equals our fade margin
+        a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, 0*u.deg, p_exceedance, 0*u.deg).value
+        return a_rain - fade_margin
+
+    try:
+        # Search for the root between 0.00001% (high availability) and 50% exceedance
+        result = root_scalar(fade_difference, bracket=[1e-5, 50], method='brentq')
+        availability = 100.0 - result.root
+        
+        return (f"Clear Sky Rx Level: {rx_clear_sky:.2f} dBm\n"
+                f"Fade Margin: {fade_margin:.2f} dB\n"
+                f"Expected Availability: {availability:.5f}%")
+    except ValueError:
+        return f"Fade Margin is {fade_margin:.2f} dB. Availability > 99.9999% (exceeds standard ITU bounds)."
+
+
 # --- Main Search & Telecom Chat Interface ---
-# --- Main Search & Telecom Chat Interface ---
-st.title("💬 IP50EX/CX/GP/20N-Series Chat Assistant")
-st.caption(f"Active Chat Reasoning Engine: **{selected_model_label}**")
+st.title("💬 IP50EX/CX/GP/20N-Series Agent")
+st.caption(f"Active Agent Reasoning Engine: **{selected_model_label}**")
 
 # 1. Initialize Chat History in Session State
 if "messages" not in st.session_state:
@@ -346,59 +495,58 @@ if query:
     # Save user query to history
     st.session_state.messages.append({"role": "user", "content": query})
     
-    # Generate and display the assistant's response
+    # Generate and display the agent's response
     with st.chat_message("assistant"):
-        with st.spinner(f"Retrieving vector context & generating response using {selected_model_id}..."):
-            user_filter = ROLE_FILTERS[st.session_state['user_role']]
-            retriever = vectorstore.as_retriever(search_kwargs={"filter": user_filter, "k": 4})
-            docs = retriever.invoke(query)
-            
-            if not docs:
-                st.warning("No relevant information found within authorized manuals.")
-                response_text = "I couldn't find an answer in the authorized documents."
-            else:
-                context = "\n\n".join([d.page_content for d in docs])
+        with st.spinner(f"Agent is analyzing your request using {selected_model_id}..."):
+            try:
+                # 1. Instantiate the LLM
+                chat_llm = get_chat_llm(selected_model_id)
                 
-                # Build a short history string (last 4 messages) to give the LLM memory
-                history_text = ""
-                if len(st.session_state.messages) > 1:
-                    history_text = "Previous Conversation Context:\n"
-                    # Grab up to the last 4 messages (excluding the current query we just added)
-                    for m in st.session_state.messages[-5:-1]: 
-                        history_text += f"{m['role'].capitalize()}: {m['content']}\n"
+                # 2. Convert Pinecone RAG into a Tool
+                user_filter = ROLE_FILTERS[st.session_state['user_role']]
+                retriever = vectorstore.as_retriever(search_kwargs={"filter": user_filter, "k": 4})
                 
-                # Updated Prompt: Now includes history and a strict instruction for follow-ups
-                prompt = f"""You are an expert telecom and wireless hardware engineering assistant.
-Answer the following query using ONLY the provided technical documentation context.
-
-{history_text}
-
-Context:
-{context}
-
-Question: {query}
-
-Instructions:
-1. Answer the question clearly and accurately based on the context.
-2. If the context does not contain enough detail, state what is missing clearly.
-3. At the very end of your response, provide exactly 2 or 3 highly relevant follow-up questions the user could ask next to deepen their understanding of this specific topic. Format them as a bulleted list under the bold heading: **Suggested Follow-up Questions:**
-"""
+                rag_tool = create_retriever_tool(
+                    retriever=retriever,
+                    name="search_hardware_manuals",
+                    description="Searches authorized technical manuals. Use this to answer questions about hardware specs, configurations, and IP50/VX-Series documentation."
+                )
                 
-                try:
-                    chat_llm = get_chat_llm(selected_model_id)
-                    response = chat_llm.invoke(prompt)
-                    response_text = response.content if hasattr(response, 'content') else str(response)
-                except Exception as e:
-                    response_text = f"❌ Chat Model Generation Error: {str(e)}"
-            
-            # Display the generated text (including the follow-ups)
-            st.markdown(response_text)
-            
-            # Display source files neatly inside an expander
-            if docs:
-                with st.expander("📄 View Retrieved Source Context Chunks"):
-                    for doc in docs:
-                        st.info(f"**Source:** {doc.metadata.get('source', 'Unknown')} | **Page:** {doc.metadata.get('page', 'N/A')} | **Access Level:** {doc.metadata.get('role', 'none').capitalize()}\n\n{doc.page_content[:300]}...")
-            
-            # Save assistant response to history
-            st.session_state.messages.append({"role": "assistant", "content": response_text})
+                # 3. Bundle the tools together
+                tools = [calculate_rain_attenuation, rag_tool]
+                
+                # 4. Define the Agent's Core Instructions
+                system_prompt = SystemMessage(content="""You are an expert telecom and wireless hardware engineering assistant.
+                You have tools available to you. 
+                - If the user asks for a calculation (like rain attenuation), use the calculation tool.
+                - If the user asks for hardware specs or documentation, use the document search tool.
+                - Do NOT guess hardware specs or math equations. Rely strictly on your tools.
+                
+                At the very end of your final answer, provide exactly 2 highly relevant follow-up questions the user could ask. Format them as a bulleted list under the bold heading: **Suggested Follow-up Questions:**
+                """)
+                
+                # 5. Build the LangGraph Agent
+                agent = create_react_agent(chat_llm, tools, prompt=system_prompt)
+                
+                # 6. Format the chat history for LangGraph
+                # LangGraph expects a simple list of tuples for standard conversational memory
+                chat_history = []
+                for m in st.session_state.messages:
+                    chat_history.append((m["role"], m["content"]))
+                        
+                # 7. Execute the Agent
+                # The agent autonomously loops between the LLM and the tools until it has a final answer
+                response = agent.invoke({"messages": chat_history})
+                
+                # 8. Extract and display the final answer
+                # The final answer from the agent is always the content of the very last message in the list
+                final_answer = response["messages"][-1].content
+                st.markdown(final_answer)
+                
+                # Save the agent's response to the Streamlit UI history
+                st.session_state.messages.append({"role": "assistant", "content": final_answer})
+                
+            except Exception as e:
+                error_msg = f"❌ Agent Execution Error: {str(e)}"
+                st.error(error_msg)
+                st.session_state.messages.append({"role": "assistant", "content": error_msg})
