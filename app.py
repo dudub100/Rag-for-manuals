@@ -3,10 +3,16 @@ import os
 import base64
 import time
 import fitz  # PyMuPDF
+import math
+import numpy as np
+from scipy.optimize import root_scalar
+import astropy.units as u
+import itur
+
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_google_genai import GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI, HarmCategory, HarmBlockThreshold
 from langchain_pinecone import PineconeVectorStore
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.documents import Document
 from pinecone import Pinecone
 from langchain_openai import ChatOpenAI
@@ -14,7 +20,9 @@ from langchain_groq import ChatGroq
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import tool
 from langchain.tools.retriever import create_retriever_tool
-from langchain_core.messages import SystemMessage
+
+# --- Page Configuration ---
+st.set_page_config(page_title="VX/IP-Series Hybrid Telecom Assistant", layout="centered")
 
 # --- Page Configuration ---
 st.set_page_config(page_title="VX/IP-Series Hybrid Telecom Assistant", layout="centered")
@@ -328,13 +336,6 @@ if st.session_state['user_role'] == 'technician':
 
 # --- 4. Define Agent Tools ---
 
-@tool
-import math
-import numpy as np
-from scipy.optimize import root_scalar
-import astropy.units as u
-import itur
-from langchain_core.tools import tool
 
 @tool
 def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequency_ghz: float, availability_pct: float) -> str:
