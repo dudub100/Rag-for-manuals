@@ -472,6 +472,9 @@ if query:
     with st.chat_message("assistant"):
         with st.spinner(f"Agent is analyzing your request using {selected_model_id}..."):
             try:
+                # Add this explicit Tool import
+                from langchain_core.tools import Tool
+                
                 # 1. Instantiate the LLM
                 chat_llm = get_chat_llm(selected_model_id)
                 
@@ -479,19 +482,21 @@ if query:
                 user_filter = ROLE_FILTERS[st.session_state['user_role']]
                 retriever = vectorstore.as_retriever(search_kwargs={"filter": user_filter, "k": 4})
                 
-                # 3. Define the tool dynamically so it inherits the retriever without needing session_state
-                @tool
-                def search_hardware_manuals(search_query: str) -> str:
-                    """
-                    Searches authorized technical manuals. 
-                    Use this strictly to answer questions about hardware specs, configurations, installation, and IP50/VX-Series documentation.
-                    """
+                # 3. Create a standard python function (NO @tool decorator)
+                def fetch_docs(search_query: str) -> str:
                     docs = retriever.invoke(search_query)
                     if not docs:
                         return "No relevant information found within authorized manuals."
                     return "\n\n".join([d.page_content for d in docs])
                 
-                # 4. Bundle ALL the tools together
+                # 4. Wrap it in the explicit Tool object
+                search_hardware_manuals = Tool(
+                    name="search_hardware_manuals",
+                    description="Searches authorized technical manuals. Use this strictly to answer questions about hardware specs, configurations, installation, and IP50/VX-Series documentation.",
+                    func=fetch_docs
+                )
+                
+                # 5. Bundle ALL the tools together
                 tools = [
                     calculate_itu_attenuations, 
                     calculate_antenna_specs, 
@@ -500,7 +505,7 @@ if query:
                     search_hardware_manuals
                 ]
                 
-                # 5. Define the Agent's Core Instructions
+                # 6. Define the Agent's Core Instructions
                 system_prompt = SystemMessage(content="""You are an expert telecom and wireless hardware engineering assistant.
                 You have tools available to you. 
                 - If the user asks for a calculation, strictly use the relevant calculation tool.
@@ -510,18 +515,18 @@ if query:
                 At the very end of your final answer, provide exactly 2 highly relevant follow-up questions the user could ask. Format them as a bulleted list under the bold heading: **Suggested Follow-up Questions:**
                 """)
                 
-                # 6. Build the LangGraph Agent
+                # 7. Build the LangGraph Agent
                 agent = create_react_agent(chat_llm, tools, prompt=system_prompt)
                 
-                # 7. Format the chat history for LangGraph
+                # 8. Format the chat history for LangGraph
                 chat_history = []
                 for m in st.session_state.messages:
                     chat_history.append((m["role"], m["content"]))
                         
-                # 8. Execute the Agent
+                # 9. Execute the Agent
                 response = agent.invoke({"messages": chat_history})
                 
-                # 9. Extract and display the final answer
+                # 10. Extract and display the final answer
                 final_answer = response["messages"][-1].content
                 st.markdown(final_answer)
                 
