@@ -24,9 +24,6 @@ from langchain.tools.retriever import create_retriever_tool
 # --- Page Configuration ---
 st.set_page_config(page_title="VX/IP-Series Hybrid Telecom Assistant", layout="centered")
 
-# --- Page Configuration ---
-st.set_page_config(page_title="VX/IP-Series Hybrid Telecom Assistant", layout="centered")
-
 # --- USER DATABASE ---
 USER_DB = {
     "Dudub": "dudu1408,technician",
@@ -84,8 +81,6 @@ st.sidebar.success(f"Logged in as: {st.session_state['user_role'].capitalize()}"
 st.sidebar.markdown("---")
 st.sidebar.subheader("🤖 Model Settings")
 
-
-
 # 1. Chat Model Dropdown Selection (Universal Router)
 MODEL_OPTIONS = {
     "Gemini 2.5 Flash (Google)": "gemini:gemini-2.5-flash",
@@ -131,12 +126,8 @@ def get_vision_llm():
         }
     )
 
-
-
 def get_chat_llm(selected_value):
     """Instantiates the user-selected Chat Reasoning model across multiple providers."""
-    # Split the string to find the provider and the actual model ID
-    # e.g. "groq:llama-3.3-70b-versatile" -> provider="groq", model_id="llama-3.3-70b-versatile"
     provider, model_id = selected_value.split(":", 1)
     
     if provider == "gemini":
@@ -177,7 +168,6 @@ def get_chat_llm(selected_value):
             temperature=0.01,
             max_tokens=1024
         )
-
 
 # Initialize Active Components
 embeddings = get_embedding_engine(EMBEDDING_OPTIONS[selected_embedding_type])
@@ -336,7 +326,6 @@ if st.session_state['user_role'] == 'technician':
 
 # --- 4. Define Agent Tools ---
 
-
 @tool
 def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequency_ghz: float, availability_pct: float) -> str:
     """
@@ -351,14 +340,12 @@ def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequ
     fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
     
     # Atmospheric Gaseous Attenuation (ITU-R P.676)
-    # Assumes standard atmospheric conditions (15°C, 1013.25 hPa, 7.5 g/m^3 water vapor)
     T = 15 * u.deg_C
     P = 1013.25 * u.hPa
     rho = 7.5 * (u.g / u.m**3)
     gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, P, rho, T)
     
     # Rain Attenuation (ITU-R P.530 / P.838 / P.837)
-    # Note: ITU-R models expect horizontal/vertical polarization. We default to Horizontal (0 deg) for worst-case.
     el = 0 * u.deg # Terrestrial link
     tau = 0 * u.deg # Horizontal polarization
     a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, el, p, tau)
@@ -373,25 +360,20 @@ def calculate_antenna_specs(frequency_ghz: float, diameter: float, unit: str) ->
     Calculates parabolic dish antenna gain (dBi) and Half-Power Beamwidth (degrees).
     Requires: frequency (GHz), diameter, and unit ('cm' or 'ft').
     """
-    # Convert diameter to meters
     if unit.lower() == 'ft':
         diameter_m = diameter * 0.3048
     elif unit.lower() == 'cm':
         diameter_m = diameter / 100.0
     else:
-        diameter_m = diameter # assume meters fallback
+        diameter_m = diameter
 
-    # Constants
-    c = 299792458.0 # m/s
+    c = 299792458.0 
     f_hz = frequency_ghz * 1e9
     wavelength_m = c / f_hz
-    efficiency = 0.60 # Standard 60% aperture efficiency
+    efficiency = 0.60 
     
-    # Gain Calculation
     gain_linear = efficiency * ((math.pi * diameter_m) / wavelength_m)**2
     gain_dbi = 10 * math.log10(gain_linear)
-    
-    # Beamwidth Calculation
     beamwidth_deg = 70 * (wavelength_m / diameter_m)
     
     return f"Antenna Gain: {gain_dbi:.2f} dBi, Half-Power Beamwidth: {beamwidth_deg:.2f}°"
@@ -403,22 +385,16 @@ def calculate_rx_threshold(qam_level: int, channel_bw_mhz: float, frequency_ghz:
     and dynamically scaled Noise Figure.
     Requires: QAM level (e.g., 1024), channel bandwidth (MHz), and frequency (GHz).
     """
-    # 1. Spectral Efficiency (bits/symbol)
     m = math.log2(qam_level)
     coding_rate = 0.88
     spectral_efficiency = m * coding_rate
     
-    # 2. Required SNR based on Shannon Limit + margins
-    # Shannon: C/B = log2(1 + SNR) -> SNR_linear = 2^(C/B) - 1
     snr_linear = (2 ** spectral_efficiency) - 1
     snr_req_db = 10 * math.log10(snr_linear) + 1.6 + 4.0
     
-    # 3. Dynamic Noise Figure (Interpolated 3dB to 7dB between 6GHz and 84GHz)
-    # Bound the frequencies to avoid negative or extreme NFs
     freq_bounded = max(6.0, min(84.0, frequency_ghz))
     nf_db = 3.0 + ((7.0 - 3.0) / (84.0 - 6.0)) * (freq_bounded - 6.0)
     
-    # 4. Thermal Noise and Final Threshold
     thermal_noise_dbm = -174.0 + 10 * math.log10(channel_bw_mhz * 1e6)
     rx_threshold_dbm = thermal_noise_dbm + nf_db + snr_req_db
     
@@ -433,38 +409,30 @@ def calculate_link_availability(qam_level: int, channel_bw_mhz: float, distance_
     Calculates expected link availability (%) by running a full link budget.
     Requires: QAM, BW (MHz), distance (km), antenna diameter (m), frequency (GHz), Tx Power (dBm), lat, and lon.
     """
-    # 1. Get Tx/Rx parameters
     rx_thresh_str = calculate_rx_threshold.invoke({"qam_level": qam_level, "channel_bw_mhz": channel_bw_mhz, "frequency_ghz": frequency_ghz})
     rx_threshold = float(rx_thresh_str.split(":")[1].split("dBm")[0].strip())
     
     ant_specs_str = calculate_antenna_specs.invoke({"frequency_ghz": frequency_ghz, "diameter": antenna_diameter_m, "unit": "m"})
     gain_dbi = float(ant_specs_str.split("Gain:")[1].split("dBi")[0].strip())
     
-    # 2. Get clear sky propagation
     f = frequency_ghz * u.GHz
     d = distance_km * u.km
     fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
     gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, 1013.25*u.hPa, 7.5*(u.g/u.m**3), 15*u.deg_C).value
     
-    # 3. Calculate Fade Margin
-    # Assumes identical antennas at both ends: Tx + Gain(Tx) - FSL - Gas + Gain(Rx)
     rx_clear_sky = tx_power_dbm + (2 * gain_dbi) - fsl_db - gamma_gas
     fade_margin = rx_clear_sky - rx_threshold
     
     if fade_margin <= 0:
         return f"Link fails in clear sky. Fade margin is {fade_margin:.2f} dB."
 
-    # 4. Iteratively solve for Availability using ITU-R P.530
     def fade_difference(p_exceedance):
-        # We find the exceedance probability 'p' where rain attenuation exactly equals our fade margin
         a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, 0*u.deg, p_exceedance, 0*u.deg).value
         return a_rain - fade_margin
 
     try:
-        # Search for the root between 0.00001% (high availability) and 50% exceedance
         result = root_scalar(fade_difference, bracket=[1e-5, 50], method='brentq')
         availability = 100.0 - result.root
-        
         return (f"Clear Sky Rx Level: {rx_clear_sky:.2f} dBm\n"
                 f"Fade Margin: {fade_margin:.2f} dB\n"
                 f"Expected Availability: {availability:.5f}%")
@@ -513,13 +481,19 @@ if query:
                     description="Searches authorized technical manuals. Use this to answer questions about hardware specs, configurations, and IP50/VX-Series documentation."
                 )
                 
-                # 3. Bundle the tools together
-                tools = [calculate_rain_attenuation, rag_tool]
+                # 3. Bundle ALL the tools together
+                tools = [
+                    calculate_itu_attenuations, 
+                    calculate_antenna_specs, 
+                    calculate_rx_threshold, 
+                    calculate_link_availability, 
+                    rag_tool
+                ]
                 
                 # 4. Define the Agent's Core Instructions
                 system_prompt = SystemMessage(content="""You are an expert telecom and wireless hardware engineering assistant.
                 You have tools available to you. 
-                - If the user asks for a calculation (like rain attenuation), use the calculation tool.
+                - If the user asks for a calculation, strictly use the relevant calculation tool.
                 - If the user asks for hardware specs or documentation, use the document search tool.
                 - Do NOT guess hardware specs or math equations. Rely strictly on your tools.
                 
@@ -530,17 +504,14 @@ if query:
                 agent = create_react_agent(chat_llm, tools, prompt=system_prompt)
                 
                 # 6. Format the chat history for LangGraph
-                # LangGraph expects a simple list of tuples for standard conversational memory
                 chat_history = []
                 for m in st.session_state.messages:
                     chat_history.append((m["role"], m["content"]))
                         
                 # 7. Execute the Agent
-                # The agent autonomously loops between the LLM and the tools until it has a final answer
                 response = agent.invoke({"messages": chat_history})
                 
                 # 8. Extract and display the final answer
-                # The final answer from the agent is always the content of the very last message in the list
                 final_answer = response["messages"][-1].content
                 st.markdown(final_answer)
                 
