@@ -332,29 +332,77 @@ def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequ
     Computes Free Space Loss (FSL), Atmospheric Attenuation, and Rain Attenuation for a specific location.
     Requires: latitude, longitude, link distance (km), frequency (GHz), and target availability (%).
     """
-    f = frequency_ghz * u.GHz
-    d = distance_km * u.km
+    f = frequency_ghz
+    d = distance_km
     p = (100.0 - availability_pct) # Exceedance probability
 
     # Free Space Loss (FSL)
     fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
     
     # Atmospheric Gaseous Attenuation (ITU-R P.676)
-    # The function expects exactly: (distance, freq, elevation, vapor_density, pressure, temp_K, mode)
-    el = 0.0 * u.deg
-    rho = 7.5 * (u.g / u.m**3)
-    P = 1013.25 * u.hPa
-    T_kelvin = 288.15 * u.K
+    # Passed as raw floats; itur assumes km, GHz, degrees, g/m^3, hPa, Kelvin
+    el = 0.0
+    rho = 7.5
+    P_hpa = 1013.25
+    T_kelvin = 288.15
     
-    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, el, rho, P, T_kelvin, 'approx')
+    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, el, rho, P_hpa, T_kelvin, 'approx')
     
     # Rain Attenuation (ITU-R P.530 / P.838 / P.837)
-    tau = 0.0 * u.deg # Horizontal polarization
+    tau = 0.0 # Horizontal polarization
     a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, el, p, tau)
     
+    # itur still outputs an astropy Quantity, so we extract .value
     return (f"FSL: {fsl_db:.2f} dB\n"
             f"Atmospheric Gas Attenuation: {gamma_gas.value:.2f} dB\n"
             f"Rain Attenuation ({availability_pct}% availability): {a_rain.value:.2f} dB")
+
+
+@tool
+def calculate_link_availability(qam_level: int, channel_bw_mhz: float, distance_km: float, 
+                              antenna_diameter_m: float, frequency_ghz: float, tx_power_dbm: float, 
+                              lat: float, lon: float) -> str:
+    """
+    Calculates expected link availability (%) by running a full link budget.
+    Requires: QAM, BW (MHz), distance (km), antenna diameter (m), frequency (GHz), Tx Power (dBm), lat, and lon.
+    """
+    rx_thresh_str = calculate_rx_threshold.invoke({"qam_level": qam_level, "channel_bw_mhz": channel_bw_mhz, "frequency_ghz": frequency_ghz})
+    rx_threshold = float(rx_thresh_str.split(":")[1].split("dBm")[0].strip())
+    
+    ant_specs_str = calculate_antenna_specs.invoke({"frequency_ghz": frequency_ghz, "diameter": antenna_diameter_m, "unit": "m"})
+    gain_dbi = float(ant_specs_str.split("Gain:")[1].split("dBi")[0].strip())
+    
+    # Define raw floats to bypass Astropy vectorization bug
+    f = frequency_ghz
+    d = distance_km
+    el = 0.0
+    
+    fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
+    
+    # Gaseous attenuation without units (7.5 g/m3, 1013.25 hPa, 288.15 K)
+    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(
+        d, f, el, 7.5, 1013.25, 288.15, 'approx'
+    ).value
+    
+    rx_clear_sky = tx_power_dbm + (2 * gain_dbi) - fsl_db - gamma_gas
+    fade_margin = rx_clear_sky - rx_threshold
+    
+    if fade_margin <= 0:
+        return f"Link fails in clear sky. Fade margin is {fade_margin:.2f} dB."
+
+    def fade_difference(p_exceedance):
+        # Raw floats passed to rain_attenuation
+        a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, el, p_exceedance, 0.0).value
+        return a_rain - fade_margin
+
+    try:
+        result = root_scalar(fade_difference, bracket=[1e-5, 50], method='brentq')
+        availability = 100.0 - result.root
+        return (f"Clear Sky Rx Level: {rx_clear_sky:.2f} dBm\n"
+                f"Fade Margin: {fade_margin:.2f} dB\n"
+                f"Expected Availability: {availability:.5f}%")
+    except ValueError:
+        return f"Fade Margin is {fade_margin:.2f} dB. Availability > 99.9999% (exceeds standard ITU bounds)."
 @tool
 def calculate_antenna_specs(frequency_ghz: float, diameter: float, unit: str) -> str:
     """
@@ -401,46 +449,6 @@ def calculate_rx_threshold(qam_level: int, channel_bw_mhz: float, frequency_ghz:
     
     return (f"Rx Threshold: {rx_threshold_dbm:.2f} dBm\n"
             f"(Calculated using {nf_db:.2f}dB NF and {snr_req_db:.2f}dB Required SNR)")
-
-@tool
-def calculate_link_availability(qam_level: int, channel_bw_mhz: float, distance_km: float, 
-                              antenna_diameter_m: float, frequency_ghz: float, tx_power_dbm: float, 
-                              lat: float, lon: float) -> str:
-    """
-    Calculates expected link availability (%) by running a full link budget.
-    Requires: QAM, BW (MHz), distance (km), antenna diameter (m), frequency (GHz), Tx Power (dBm), lat, and lon.
-    """
-    rx_thresh_str = calculate_rx_threshold.invoke({"qam_level": qam_level, "channel_bw_mhz": channel_bw_mhz, "frequency_ghz": frequency_ghz})
-    rx_threshold = float(rx_thresh_str.split(":")[1].split("dBm")[0].strip())
-    
-    ant_specs_str = calculate_antenna_specs.invoke({"frequency_ghz": frequency_ghz, "diameter": antenna_diameter_m, "unit": "m"})
-    gain_dbi = float(ant_specs_str.split("Gain:")[1].split("dBi")[0].strip())
-    
-    f = frequency_ghz * u.GHz
-    d = distance_km * u.km
-    fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
-    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, 1013.25*u.hPa, 7.5*(u.g/u.m**3), 15*u.deg_C).value
-    
-    rx_clear_sky = tx_power_dbm + (2 * gain_dbi) - fsl_db - gamma_gas
-    fade_margin = rx_clear_sky - rx_threshold
-    
-    if fade_margin <= 0:
-        return f"Link fails in clear sky. Fade margin is {fade_margin:.2f} dB."
-
-    def fade_difference(p_exceedance):
-        a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, 0*u.deg, p_exceedance, 0*u.deg).value
-        return a_rain - fade_margin
-
-    try:
-        result = root_scalar(fade_difference, bracket=[1e-5, 50], method='brentq')
-        availability = 100.0 - result.root
-        return (f"Clear Sky Rx Level: {rx_clear_sky:.2f} dBm\n"
-                f"Fade Margin: {fade_margin:.2f} dB\n"
-                f"Expected Availability: {availability:.5f}%")
-    except ValueError:
-        return f"Fade Margin is {fade_margin:.2f} dB. Availability > 99.9999% (exceeds standard ITU bounds)."
-
-
 
 
 
