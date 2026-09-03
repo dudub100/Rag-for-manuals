@@ -82,8 +82,8 @@ st.sidebar.subheader("🤖 Model Settings")
 
 # 1. Chat Model Dropdown Selection (Universal Router)
 MODEL_OPTIONS = {
-    "Gemini 2.5 Flash (Google)": "gemini:gemini-2.5-flash",
     "GPT-OSS 120B (Groq - Deep Logic & Telecom, Free)": "groq:openai/gpt-oss-120b",
+    "Gemini 2.5 Flash (Google)": "gemini:gemini-2.5-flash",
     "GPT-OSS 20B (Groq - Lightning Fast, Free)": "groq:openai/gpt-oss-20b",
     "Auto-Free Open Source (OpenRouter)": "openrouter:openrouter/free",
     "Llama 3 8B (OpenRouter - Free)": "openrouter:meta-llama/llama-3.1-8b-instruct:free"
