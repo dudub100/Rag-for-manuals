@@ -19,7 +19,6 @@ from langchain_openai import ChatOpenAI
 from langchain_groq import ChatGroq
 from langgraph.prebuilt import create_react_agent
 from langchain_core.tools import tool
-from langchain.tools.retriever import create_retriever_tool
 
 # --- Page Configuration ---
 st.set_page_config(page_title="VX/IP-Series Hybrid Telecom Assistant", layout="centered")
@@ -439,6 +438,22 @@ def calculate_link_availability(qam_level: int, channel_bw_mhz: float, distance_
     except ValueError:
         return f"Fade Margin is {fade_margin:.2f} dB. Availability > 99.9999% (exceeds standard ITU bounds)."
 
+@tool
+def search_hardware_manuals(query: str) -> str:
+    """
+    Searches authorized technical manuals. 
+    Use this strictly to answer questions about hardware specs, configurations, installation, and IP50/VX-Series documentation.
+    """
+    user_filter = ROLE_FILTERS[st.session_state['user_role']]
+    retriever = vectorstore.as_retriever(search_kwargs={"filter": user_filter, "k": 4})
+    
+    docs = retriever.invoke(query)
+    
+    if not docs:
+        return "No relevant information found within authorized manuals."
+    
+    return "\n\n".join([d.page_content for d in docs])
+
 
 # --- Main Search & Telecom Chat Interface ---
 st.title("💬 IP50EX/CX/GP/20N-Series Agent")
@@ -471,26 +486,16 @@ if query:
                 # 1. Instantiate the LLM
                 chat_llm = get_chat_llm(selected_model_id)
                 
-                # 2. Convert Pinecone RAG into a Tool
-                user_filter = ROLE_FILTERS[st.session_state['user_role']]
-                retriever = vectorstore.as_retriever(search_kwargs={"filter": user_filter, "k": 4})
-                
-                rag_tool = create_retriever_tool(
-                    retriever=retriever,
-                    name="search_hardware_manuals",
-                    description="Searches authorized technical manuals. Use this to answer questions about hardware specs, configurations, and IP50/VX-Series documentation."
-                )
-                
-                # 3. Bundle ALL the tools together
+                # 2. Bundle ALL the tools together
                 tools = [
                     calculate_itu_attenuations, 
                     calculate_antenna_specs, 
                     calculate_rx_threshold, 
                     calculate_link_availability, 
-                    rag_tool
+                    search_hardware_manuals
                 ]
                 
-                # 4. Define the Agent's Core Instructions
+                # 3. Define the Agent's Core Instructions
                 system_prompt = SystemMessage(content="""You are an expert telecom and wireless hardware engineering assistant.
                 You have tools available to you. 
                 - If the user asks for a calculation, strictly use the relevant calculation tool.
@@ -500,18 +505,18 @@ if query:
                 At the very end of your final answer, provide exactly 2 highly relevant follow-up questions the user could ask. Format them as a bulleted list under the bold heading: **Suggested Follow-up Questions:**
                 """)
                 
-                # 5. Build the LangGraph Agent
+                # 4. Build the LangGraph Agent
                 agent = create_react_agent(chat_llm, tools, prompt=system_prompt)
                 
-                # 6. Format the chat history for LangGraph
+                # 5. Format the chat history for LangGraph
                 chat_history = []
                 for m in st.session_state.messages:
                     chat_history.append((m["role"], m["content"]))
                         
-                # 7. Execute the Agent
+                # 6. Execute the Agent
                 response = agent.invoke({"messages": chat_history})
                 
-                # 8. Extract and display the final answer
+                # 7. Extract and display the final answer
                 final_answer = response["messages"][-1].content
                 st.markdown(final_answer)
                 
