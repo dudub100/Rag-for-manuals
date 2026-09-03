@@ -326,6 +326,7 @@ if st.session_state['user_role'] == 'technician':
 # --- 4. Define Agent Tools ---
 
 @tool
+@tool
 def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequency_ghz: float, availability_pct: float) -> str:
     """
     Computes Free Space Loss (FSL), Atmospheric Attenuation, and Rain Attenuation for a specific location.
@@ -339,20 +340,21 @@ def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequ
     fsl_db = 20 * math.log10(distance_km) + 20 * math.log10(frequency_ghz) + 92.45
     
     # Atmospheric Gaseous Attenuation (ITU-R P.676)
-    T = 15 * u.deg_C
-    P = 1013.25 * u.hPa
+    # The function expects exactly: (distance, freq, elevation, vapor_density, pressure, temp_K, mode)
+    el = 0.0 * u.deg
     rho = 7.5 * (u.g / u.m**3)
-    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, P, rho, T)
+    P = 1013.25 * u.hPa
+    T_kelvin = 288.15 * u.K
+    
+    gamma_gas = itur.models.itu676.gaseous_attenuation_terrestrial_path(d, f, el, rho, P, T_kelvin, 'approx')
     
     # Rain Attenuation (ITU-R P.530 / P.838 / P.837)
-    el = 0 * u.deg # Terrestrial link
-    tau = 0 * u.deg # Horizontal polarization
+    tau = 0.0 * u.deg # Horizontal polarization
     a_rain = itur.models.itu530.rain_attenuation(lat, lon, d, f, el, p, tau)
     
     return (f"FSL: {fsl_db:.2f} dB\n"
             f"Atmospheric Gas Attenuation: {gamma_gas.value:.2f} dB\n"
             f"Rain Attenuation ({availability_pct}% availability): {a_rain.value:.2f} dB")
-
 @tool
 def calculate_antenna_specs(frequency_ghz: float, diameter: float, unit: str) -> str:
     """
@@ -438,21 +440,8 @@ def calculate_link_availability(qam_level: int, channel_bw_mhz: float, distance_
     except ValueError:
         return f"Fade Margin is {fade_margin:.2f} dB. Availability > 99.9999% (exceeds standard ITU bounds)."
 
-@tool
-def search_hardware_manuals(query: str) -> str:
-    """
-    Searches authorized technical manuals. 
-    Use this strictly to answer questions about hardware specs, configurations, installation, and IP50/VX-Series documentation.
-    """
-    user_filter = ROLE_FILTERS[st.session_state['user_role']]
-    retriever = vectorstore.as_retriever(search_kwargs={"filter": user_filter, "k": 4})
-    
-    docs = retriever.invoke(query)
-    
-    if not docs:
-        return "No relevant information found within authorized manuals."
-    
-    return "\n\n".join([d.page_content for d in docs])
+
+
 
 
 # --- Main Search & Telecom Chat Interface ---
@@ -486,7 +475,23 @@ if query:
                 # 1. Instantiate the LLM
                 chat_llm = get_chat_llm(selected_model_id)
                 
-                # 2. Bundle ALL the tools together
+                # 2. Build the Retriever securely OUTSIDE the tool
+                user_filter = ROLE_FILTERS[st.session_state['user_role']]
+                retriever = vectorstore.as_retriever(search_kwargs={"filter": user_filter, "k": 4})
+                
+                # 3. Define the tool dynamically so it inherits the retriever without needing session_state
+                @tool
+                def search_hardware_manuals(search_query: str) -> str:
+                    """
+                    Searches authorized technical manuals. 
+                    Use this strictly to answer questions about hardware specs, configurations, installation, and IP50/VX-Series documentation.
+                    """
+                    docs = retriever.invoke(search_query)
+                    if not docs:
+                        return "No relevant information found within authorized manuals."
+                    return "\n\n".join([d.page_content for d in docs])
+                
+                # 4. Bundle ALL the tools together
                 tools = [
                     calculate_itu_attenuations, 
                     calculate_antenna_specs, 
@@ -495,7 +500,7 @@ if query:
                     search_hardware_manuals
                 ]
                 
-                # 3. Define the Agent's Core Instructions
+                # 5. Define the Agent's Core Instructions
                 system_prompt = SystemMessage(content="""You are an expert telecom and wireless hardware engineering assistant.
                 You have tools available to you. 
                 - If the user asks for a calculation, strictly use the relevant calculation tool.
@@ -505,18 +510,18 @@ if query:
                 At the very end of your final answer, provide exactly 2 highly relevant follow-up questions the user could ask. Format them as a bulleted list under the bold heading: **Suggested Follow-up Questions:**
                 """)
                 
-                # 4. Build the LangGraph Agent
+                # 6. Build the LangGraph Agent
                 agent = create_react_agent(chat_llm, tools, prompt=system_prompt)
                 
-                # 5. Format the chat history for LangGraph
+                # 7. Format the chat history for LangGraph
                 chat_history = []
                 for m in st.session_state.messages:
                     chat_history.append((m["role"], m["content"]))
                         
-                # 6. Execute the Agent
+                # 8. Execute the Agent
                 response = agent.invoke({"messages": chat_history})
                 
-                # 7. Extract and display the final answer
+                # 9. Extract and display the final answer
                 final_answer = response["messages"][-1].content
                 st.markdown(final_answer)
                 
