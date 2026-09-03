@@ -325,7 +325,7 @@ if st.session_state['user_role'] == 'technician':
 
 # --- 4. Define Agent Tools ---
 
-@tool
+
 @tool
 def calculate_itu_attenuations(lat: float, lon: float, distance_km: float, frequency_ghz: float, availability_pct: float) -> str:
     """
