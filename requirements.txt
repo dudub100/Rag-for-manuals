@@ -10,3 +10,6 @@ sentence-transformers
 huggingface-hub
 langchain-openai
 langchain-groq
+itur
+astropy
+scipy
